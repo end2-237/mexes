@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bleu-vif: #1d4ed8;
+  --bleu-med: #3b82f6;
+  --bleu-cl: #eff6ff;
+  --bleu-bord: #bfdbfe;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: #f1f5f9;
+  color: #1e293b;
+  font-family: "Inter", "Segoe UI", sans-serif;
+}
+
+/* Scrollbar fine (repris du dashboard d'origine) */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #eff6ff;
+}
+::-webkit-scrollbar-thumb {
+  background: #bfdbfe;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #93c5fd;
+}
+
+@keyframes ping-dot {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.9);
+    opacity: 0.35;
+  }
+}
