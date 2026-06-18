@@ -203,7 +203,7 @@ export default function Dashboard() {
       {/* Toast */}
       <div id="toast" className={toastMsg ? "show" : ""}>
         {toastMsg}
-      </div>
+      </div> 
 
       {/* Sidebar */}
       <aside>
