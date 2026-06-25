@@ -18,7 +18,7 @@ declare global {
 }
 
 function create(): Sql {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL || 'postgresql://postgres.rrgsidmwupvdhpnrqlic:Mexesfranck14@aws-1-eu-central-2.pooler.supabase.com:6543/postgres';
   if (!connectionString) {
     throw new Error(
       "DATABASE_URL non défini — configurez la connexion Supabase dans les variables d'environnement."
