@@ -1,4 +1,4 @@
-export const dynamic = "fort-dynamic";
+export const dynamic = "force-dynamic";
 import { json } from "@/lib/http";
 
 export async function GET() {
