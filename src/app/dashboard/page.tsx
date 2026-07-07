@@ -60,7 +60,35 @@ export default function Dashboard() {
   const [token, setToken] = useState<string | null>(null);
 
   // Page active dans la sidebar
-  const [pageActive, setPageActive] = useState<"indicateurs" | "produits">("indicateurs");
+  const [pageActive, setPageActive] = useState<"indicateurs" | "produits" | "commandes" | "alertes">("indicateurs");
+
+  // ── État : Commandes (liste complète) ────────────────────
+  type CommandeComplete = {
+    id_commande: number;
+    statut_cmd: string;
+    date_paiement: string | null;
+    date_livraison: string | null;
+    nom_client: string;
+    email_client: string;
+    montant: number | null;
+    mode_paiement: string | null;
+    statut_transaction: string | null;
+  };
+  const [commandesToutes, setCommandesToutes] = useState<CommandeComplete[]>([]);
+  const [chargementCommandes, setChargementCommandes] = useState(false);
+  const [filtreStatut, setFiltreStatut] = useState<string>("");
+
+  // ── État : Alertes IDS ────────────────────────────────────
+  type Alerte = {
+    id_req: number;
+    address_ip: string;
+    danger: string;
+    redis_key: string | null;
+    times: string;
+    details: string | null;
+  };
+  const [alertes, setAlertes] = useState<Alerte[]>([]);
+  const [chargementAlertes, setChargementAlertes] = useState(false);
 
   const [kpi, setKpi] = useState({ commandes: 0, alertes: 0, nlp: 0 });
   const [commandes, setCommandes] = useState<CommandeLigne[]>([]);
@@ -245,15 +273,55 @@ export default function Dashboard() {
     }
   }
 
+  // ── Commandes complètes : fonctions ──────────────────────
+  async function chargerCommandesCompletes(statut = filtreStatut, tk = token) {
+    if (!tk) return;
+    setChargementCommandes(true);
+    try {
+      const url = statut
+        ? `/api/admin/commandes?statut=${encodeURIComponent(statut)}`
+        : "/api/admin/commandes";
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${tk}` } });
+      const data = await res.json();
+      setCommandesToutes(Array.isArray(data.commandes) ? data.commandes : []);
+    } catch {
+      toast("❌ Erreur lors du chargement des commandes.");
+    } finally {
+      setChargementCommandes(false);
+    }
+  }
+
+  // ── Alertes IDS : fonctions ───────────────────────────────
+  async function chargerAlertes(tk = token) {
+    if (!tk) return;
+    setChargementAlertes(true);
+    try {
+      const res = await fetch("/api/admin/alertes", { headers: { Authorization: `Bearer ${tk}` } });
+      const data = await res.json();
+      setAlertes(Array.isArray(data.alertes) ? data.alertes : []);
+    } catch {
+      toast("❌ Erreur lors du chargement des alertes.");
+    } finally {
+      setChargementAlertes(false);
+    }
+  }
+
   useEffect(() => {
     if (token) chargerDonnees(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  // Charge les produits dès qu'on ouvre l'onglet (une seule fois par session)
+  // Charge les données de chaque onglet à la première ouverture (une fois par session)
   useEffect(() => {
-    if (token && pageActive === "produits" && produits.length === 0 && !chargementProduits) {
+    if (!token) return;
+    if (pageActive === "produits" && produits.length === 0 && !chargementProduits) {
       chargerProduits(token);
+    }
+    if (pageActive === "commandes" && commandesToutes.length === 0 && !chargementCommandes) {
+      chargerCommandesCompletes(filtreStatut, token);
+    }
+    if (pageActive === "alertes" && alertes.length === 0 && !chargementAlertes) {
+      chargerAlertes(token);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, pageActive]);
@@ -568,11 +636,25 @@ export default function Dashboard() {
             <i className="fa-solid fa-boxes-stacked" />
             Produits & Stock
           </a>
-          <a href="#" className="nav-item" onClick={(e) => e.preventDefault()}>
+          <a
+            href="#"
+            className={`nav-item${pageActive === "commandes" ? " actif" : ""}`}
+            onClick={(e) => {
+              e.preventDefault();
+              setPageActive("commandes");
+            }}
+          >
             <i className="fa-solid fa-cash-register" />
             Commandes
           </a>
-          <a href="#" className="nav-item" onClick={(e) => e.preventDefault()}>
+          <a
+            href="#"
+            className={`nav-item${pageActive === "alertes" ? " actif" : ""}`}
+            onClick={(e) => {
+              e.preventDefault();
+              setPageActive("alertes");
+            }}
+          >
             <i className="fa-solid fa-user-secret" />
             Alertes IDS
           </a>
@@ -680,6 +762,149 @@ export default function Dashboard() {
                           </tr>
                         );
                       })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        ) : pageActive === "commandes" ? (
+          <>
+            <div className="page-header">
+              <div>
+                <div className="page-title">Commandes</div>
+                <div className="page-sub">Liste complète — 200 dernières commandes</div>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <select
+                  className="modal-select"
+                  style={{ width: "auto", marginBottom: 0 }}
+                  value={filtreStatut}
+                  onChange={(e) => {
+                    setFiltreStatut(e.target.value);
+                    chargerCommandesCompletes(e.target.value);
+                  }}
+                >
+                  <option value="">Tous les statuts</option>
+                  {STATUTS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn-refresh" onClick={() => chargerCommandesCompletes()}>
+                  <i className={`fa-solid fa-rotate-right${chargementCommandes ? " fa-spin" : ""}`} /> Actualiser
+                </button>
+              </div>
+            </div>
+
+            <div className="table-card" style={{ flex: 1, minHeight: 260 }}>
+              <div className="table-title">
+                <i className="fa-solid fa-cash-register" style={{ color: "#1D4ED8" }} />
+                Commandes
+                <span className="badge-count">{commandesToutes.length}</span>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto" }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#ID</th>
+                      <th>Client</th>
+                      <th>Statut</th>
+                      <th>Montant</th>
+                      <th>Paiement</th>
+                      <th style={{ textAlign: "right" }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {commandesToutes.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={{ textAlign: "center", padding: 40, color: "#94A3B8", fontStyle: "italic" }}>
+                          Aucune commande trouvée.
+                        </td>
+                      </tr>
+                    ) : (
+                      commandesToutes.map((c) => {
+                        const [cls, ico] = badgeClasse(c.statut_cmd);
+                        return (
+                          <tr key={c.id_commande}>
+                            <td style={{ fontFamily: "monospace", fontWeight: 700, color: "#1D4ED8" }}>#{c.id_commande}</td>
+                            <td>
+                              <div style={{ fontWeight: 700 }}>{c.nom_client}</div>
+                              <div style={{ fontSize: 10, color: "#94A3B8" }}>{c.email_client}</div>
+                            </td>
+                            <td>
+                              <span className={`badge ${cls}`}>
+                                {ico} {c.statut_cmd}
+                              </span>
+                            </td>
+                            <td style={{ fontWeight: 700 }}>
+                              {c.montant != null ? `${Number(c.montant).toLocaleString("fr-CM")} FCFA` : "—"}
+                            </td>
+                            <td style={{ color: "#64748B" }}>{c.mode_paiement || "—"}</td>
+                            <td style={{ textAlign: "right" }}>
+                              <button className="btn-traiter" onClick={() => ouvrirModal(c.id_commande, c.statut_cmd)}>
+                                <i className="fa-solid fa-pen" style={{ marginRight: 4 }} />
+                                Traiter
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        ) : pageActive === "alertes" ? (
+          <>
+            <div className="page-header">
+              <div>
+                <div className="page-title">Alertes Sécurité (IDS/IPS)</div>
+                <div className="page-sub">200 dernières alertes détectées</div>
+              </div>
+              <button className="btn-refresh" onClick={() => chargerAlertes()}>
+                <i className={`fa-solid fa-rotate-right${chargementAlertes ? " fa-spin" : ""}`} /> Actualiser
+              </button>
+            </div>
+
+            <div className="table-card" style={{ flex: 1, minHeight: 260 }}>
+              <div className="table-title">
+                <i className="fa-solid fa-user-secret" style={{ color: "#EF4444" }} />
+                Alertes
+                <span className="badge-count">{alertes.length}</span>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto" }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Adresse IP</th>
+                      <th>Type de danger</th>
+                      <th>Détails</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alertes.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: "center", padding: 40, color: "#94A3B8", fontStyle: "italic" }}>
+                          Aucune alerte enregistrée. Tout est calme. ✅
+                        </td>
+                      </tr>
+                    ) : (
+                      alertes.map((a) => (
+                        <tr key={a.id_req}>
+                          <td style={{ fontFamily: "monospace", fontWeight: 700 }}>{a.address_ip}</td>
+                          <td>
+                            <span className="badge badge-annule">⚠️ {a.danger}</span>
+                          </td>
+                          <td style={{ color: "#64748B", maxWidth: 320 }}>{a.details || "—"}</td>
+                          <td style={{ color: "#94A3B8", fontSize: 11 }}>
+                            {new Date(a.times).toLocaleString("fr-CM")}
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
