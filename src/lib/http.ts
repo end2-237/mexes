@@ -32,7 +32,13 @@ export function handler(
     } catch (e) {
       if (e instanceof ApiError) return fail(e.status, e.message);
       console.error("Erreur API:", e);
-      return fail(500, "Erreur interne du serveur.");
+      // Pour faciliter le diagnostic (ex: connexion Supabase), on remonte le
+      // message d'erreur si DEBUG_ERRORS=1. À désactiver une fois résolu.
+      const detail =
+        process.env.DEBUG_ERRORS === "1" && e instanceof Error
+          ? `Erreur interne : ${e.message}`
+          : "Erreur interne du serveur.";
+      return fail(500, detail);
     }
   };
 }

@@ -51,5 +51,5 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   // On exécute le middleware sur toutes les routes sauf les assets internes Next.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 };

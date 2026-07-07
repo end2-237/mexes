@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { handler, json, ApiError, requireUser } from "@/lib/http";
 import { sql } from "@/lib/db";
 
