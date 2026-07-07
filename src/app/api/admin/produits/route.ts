@@ -1,9 +1,8 @@
-export const dynamic = "force-dynamic";
 import { handler, json, ApiError, requireAdmin } from "@/lib/http";
 import { sql } from "@/lib/db";
 import { uploadFichierProduit } from "@/lib/supabase";
 
-// Destination : app/api/admin/produits/route.ts
+export const dynamic = "force-dynamic";
 
 // GET /api/admin/produits — liste des produits avec leur stock actuel
 export const GET = handler(async (req) => {
@@ -19,9 +18,8 @@ export const GET = handler(async (req) => {
   return json({ produits });
 });
 
-// POST /api/admin/produits — créer un produit
-// Envoyer en multipart/form-data :
-//   nom_produit, description, prix_unitaire, categorie, stock_initial, photo?, video?
+// POST /api/admin/produits — créer un produit (multipart/form-data)
+//   nom_produit, description, prix_unitaire, categorie, stock_initial, seuil_alerte, photo?, video?
 export const POST = handler(async (req) => {
   await requireAdmin(req);
 

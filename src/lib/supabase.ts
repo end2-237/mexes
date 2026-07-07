@@ -6,8 +6,11 @@ import { createClient } from "@supabase/supabase-js";
  * prêts à l'emploi pour une future intégration (ex: Supabase Auth, Storage).
  */
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+// Valeurs de repli (placeholder) pour que createClient ne lève pas
+// « supabaseUrl is required » au build quand les variables ne sont pas injectées.
+// Les vraies valeurs proviennent des variables d'environnement au runtime.
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key";
 
 // Client public (navigateur / composants) — clé anon.
 export const supabase = createClient(url, anonKey);

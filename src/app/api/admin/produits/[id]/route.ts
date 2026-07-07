@@ -1,9 +1,8 @@
-export const dynamic = "force-dynamic";
 import { handler, json, ApiError, requireAdmin } from "@/lib/http";
 import { sql } from "@/lib/db";
 import { uploadFichierProduit } from "@/lib/supabase";
 
-// Destination : app/api/admin/produits/[id]/route.ts
+export const dynamic = "force-dynamic";
 
 // GET /api/admin/produits/:id — détail d'un produit
 export const GET = handler(async (req, ctx) => {
