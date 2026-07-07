@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 /**
  * DASHBOARD ADMIN — port fidèle de static/dashboard.html + onglet Produits & Stock.
@@ -195,19 +196,37 @@ export default function Dashboard() {
     }
     setEnvoiProduit(true);
     try {
-      const form = new FormData();
-      form.append("nom_produit", nomProduit.trim());
-      form.append("description", descriptionProduit.trim());
-      form.append("prix_unitaire", prixProduit);
-      form.append("categorie", categorieProduit.trim());
-      form.append("stock_initial", stockInitial || "0");
-      if (photoProduit) form.append("photo", photoProduit);
-      if (videoProduit) form.append("video", videoProduit);
+      // Upload direct navigateur → Supabase Storage (contourne la limite 4,5 Mo de Vercel)
+      const uploadVersSupabase = async (file: File, dossier: "photos" | "videos") => {
+        const r = await fetch("/api/admin/produits/signed-upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ dossier, filename: file.name }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || "Préparation de l'upload impossible.");
+        const { error } = await supabase.storage.from("produits").uploadToSignedUrl(d.path, d.token, file);
+        if (error) throw new Error(error.message);
+        return d.publicUrl as string;
+      };
+
+      let photo_url: string | null = null;
+      let video_url: string | null = null;
+      if (photoProduit) photo_url = await uploadVersSupabase(photoProduit, "photos");
+      if (videoProduit) video_url = await uploadVersSupabase(videoProduit, "videos");
 
       const res = await fetch("/api/admin/produits", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: form,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          nom_produit: nomProduit.trim(),
+          description: descriptionProduit.trim(),
+          prix_unitaire: Number(prixProduit),
+          categorie: categorieProduit.trim(),
+          stock_initial: Number(stockInitial || 0),
+          photo_url,
+          video_url,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -224,8 +243,8 @@ export default function Dashboard() {
       setVideoProduit(null);
       setFormProduitOuvert(false);
       chargerProduits();
-    } catch {
-      toast("❌ Impossible de joindre le serveur.");
+    } catch (e) {
+      toast(`❌ ${e instanceof Error ? e.message : "Impossible de joindre le serveur."}`);
     } finally {
       setEnvoiProduit(false);
     }
