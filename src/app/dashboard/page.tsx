@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * DASHBOARD ADMIN — port fidèle de static/dashboard.html
+ * DASHBOARD ADMIN — port fidèle de static/dashboard.html + onglet Produits & Stock.
  * Thème blanc & bleu Clé Minutes. Consomme les routes /api/admin/*.
  */
 
@@ -15,6 +15,28 @@ type CommandeLigne = {
   paiement?: { montant?: number };
   total?: number;
   montant?: number;
+};
+
+type Produit = {
+  id_produit: number;
+  nom_produit: string;
+  description: string | null;
+  prix_unitaire: number;
+  categorie: string | null;
+  photo_url: string | null;
+  video_url: string | null;
+  stock_actuel: number;
+  seuil_alerte: number;
+  actif: boolean;
+};
+
+type Mouvement = {
+  id_mouvement: number;
+  type_mouvement: "entree" | "sortie" | "ajustement";
+  quantite: number;
+  motif: string | null;
+  stock_apres: number;
+  date_mouvement: string;
 };
 
 const STATUTS = ["En attente", "Confirmée", "En livraison", "Livrée", "Annulée"];
@@ -37,6 +59,9 @@ export default function Dashboard() {
   const [erreur, setErreur] = useState("");
   const [token, setToken] = useState<string | null>(null);
 
+  // Page active dans la sidebar
+  const [pageActive, setPageActive] = useState<"indicateurs" | "produits">("indicateurs");
+
   const [kpi, setKpi] = useState({ commandes: 0, alertes: 0, nlp: 0 });
   const [commandes, setCommandes] = useState<CommandeLigne[]>([]);
   const [refreshSpin, setRefreshSpin] = useState(false);
@@ -45,6 +70,26 @@ export default function Dashboard() {
   const [modalStatut, setModalStatut] = useState("En attente");
   const [toastMsg, setToastMsg] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── État : Produits & Stock ─────────────────────────────
+  const [produits, setProduits] = useState<Produit[]>([]);
+  const [chargementProduits, setChargementProduits] = useState(false);
+
+  const [formProduitOuvert, setFormProduitOuvert] = useState(false);
+  const [nomProduit, setNomProduit] = useState("");
+  const [descriptionProduit, setDescriptionProduit] = useState("");
+  const [prixProduit, setPrixProduit] = useState("");
+  const [categorieProduit, setCategorieProduit] = useState("");
+  const [stockInitial, setStockInitial] = useState("0");
+  const [photoProduit, setPhotoProduit] = useState<File | null>(null);
+  const [videoProduit, setVideoProduit] = useState<File | null>(null);
+  const [envoiProduit, setEnvoiProduit] = useState(false);
+
+  const [produitStock, setProduitStock] = useState<Produit | null>(null);
+  const [typeMouvement, setTypeMouvement] = useState<"entree" | "sortie" | "ajustement">("entree");
+  const [quantiteMouvement, setQuantiteMouvement] = useState("1");
+  const [motifMouvement, setMotifMouvement] = useState("");
+  const [historique, setHistorique] = useState<Mouvement[]>([]);
 
   function toast(msg: string) {
     setToastMsg(msg);
@@ -98,10 +143,120 @@ export default function Dashboard() {
     }
   }
 
+  // ── Produits & Stock : fonctions ─────────────────────────
+  async function chargerProduits(tk = token) {
+    if (!tk) return;
+    setChargementProduits(true);
+    try {
+      const res = await fetch("/api/admin/produits", {
+        headers: { Authorization: `Bearer ${tk}` },
+      });
+      const data = await res.json();
+      setProduits(Array.isArray(data.produits) ? data.produits : []);
+    } catch {
+      toast("❌ Erreur lors du chargement des produits.");
+    } finally {
+      setChargementProduits(false);
+    }
+  }
+
+  async function creerProduit() {
+    if (!nomProduit.trim() || !prixProduit || Number(prixProduit) <= 0) {
+      toast("❌ Nom et prix (positif) sont requis.");
+      return;
+    }
+    setEnvoiProduit(true);
+    try {
+      const form = new FormData();
+      form.append("nom_produit", nomProduit.trim());
+      form.append("description", descriptionProduit.trim());
+      form.append("prix_unitaire", prixProduit);
+      form.append("categorie", categorieProduit.trim());
+      form.append("stock_initial", stockInitial || "0");
+      if (photoProduit) form.append("photo", photoProduit);
+      if (videoProduit) form.append("video", videoProduit);
+
+      const res = await fetch("/api/admin/produits", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(`❌ ${data.detail || "Échec de la création."}`);
+        return;
+      }
+      toast(`✅ Produit "${nomProduit}" créé.`);
+      setNomProduit("");
+      setDescriptionProduit("");
+      setPrixProduit("");
+      setCategorieProduit("");
+      setStockInitial("0");
+      setPhotoProduit(null);
+      setVideoProduit(null);
+      setFormProduitOuvert(false);
+      chargerProduits();
+    } catch {
+      toast("❌ Impossible de joindre le serveur.");
+    } finally {
+      setEnvoiProduit(false);
+    }
+  }
+
+  async function ouvrirModalStock(p: Produit) {
+    setProduitStock(p);
+    setTypeMouvement("entree");
+    setQuantiteMouvement("1");
+    setMotifMouvement("");
+    try {
+      const res = await fetch(`/api/admin/produits/${p.id_produit}/stock`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setHistorique(Array.isArray(data.mouvements) ? data.mouvements : []);
+    } catch {
+      setHistorique([]);
+    }
+  }
+
+  async function confirmerMouvement() {
+    if (!produitStock) return;
+    const quantite = Number(quantiteMouvement);
+    if (!quantite || quantite <= 0) {
+      toast("❌ Quantité invalide.");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/admin/produits/${produitStock.id_produit}/stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type_mouvement: typeMouvement, quantite, motif: motifMouvement || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(`❌ ${data.detail || "Échec de l'opération."}`);
+        return;
+      }
+      toast(`✅ Stock mis à jour : ${data.stock_actuel} unité(s) restante(s).`);
+      setProduitStock(null);
+      chargerProduits();
+    } catch {
+      toast("❌ Impossible de joindre le serveur.");
+    }
+  }
+
   useEffect(() => {
     if (token) chargerDonnees(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // Charge les produits dès qu'on ouvre l'onglet (une seule fois par session)
+  useEffect(() => {
+    if (token && pageActive === "produits" && produits.length === 0 && !chargementProduits) {
+      chargerProduits(token);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, pageActive]);
 
   function ouvrirModal(id: number, statut: string) {
     setModalId(id);
@@ -172,7 +327,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Modal statut */}
+      {/* Modal statut commande */}
       {modalId != null && (
         <div className="modal-overlay" onClick={() => setModalId(null)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
@@ -196,6 +351,167 @@ export default function Dashboard() {
             <button className="btn-annuler" onClick={() => setModalId(null)}>
               Annuler
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal création produit */}
+      {formProduitOuvert && (
+        <div className="modal-overlay" onClick={() => !envoiProduit && setFormProduitOuvert(false)}>
+          <div className="modal-box" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">
+              <i className="fa-solid fa-box-open" style={{ color: "#1D4ED8", marginRight: 8 }} />
+              Nouveau produit
+            </div>
+            <div className="form-grid">
+              <div>
+                <label className="lock-label">Nom du produit *</label>
+                <input
+                  className="lock-input"
+                  value={nomProduit}
+                  onChange={(e) => setNomProduit(e.target.value)}
+                  placeholder="Clé sécurisée 3 points"
+                />
+              </div>
+              <div>
+                <label className="lock-label">Catégorie</label>
+                <input
+                  className="lock-input"
+                  value={categorieProduit}
+                  onChange={(e) => setCategorieProduit(e.target.value)}
+                  placeholder="Serrurerie"
+                />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label className="lock-label">Description</label>
+                <textarea
+                  className="lock-input"
+                  style={{ minHeight: 70, resize: "vertical" }}
+                  value={descriptionProduit}
+                  onChange={(e) => setDescriptionProduit(e.target.value)}
+                  placeholder="Détails, matériau, compatibilité..."
+                />
+              </div>
+              <div>
+                <label className="lock-label">Prix unitaire (FCFA) *</label>
+                <input
+                  className="lock-input"
+                  type="number"
+                  min={0}
+                  value={prixProduit}
+                  onChange={(e) => setPrixProduit(e.target.value)}
+                  placeholder="2500"
+                />
+              </div>
+              <div>
+                <label className="lock-label">Stock initial</label>
+                <input
+                  className="lock-input"
+                  type="number"
+                  min={0}
+                  value={stockInitial}
+                  onChange={(e) => setStockInitial(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="lock-label">Photo du produit</label>
+                <input
+                  className="lock-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setPhotoProduit(e.target.files?.[0] || null)}
+                />
+              </div>
+              <div>
+                <label className="lock-label">Vidéo du produit</label>
+                <input
+                  className="lock-input"
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => setVideoProduit(e.target.files?.[0] || null)}
+                />
+              </div>
+            </div>
+            <button className="btn-confirmer" disabled={envoiProduit} onClick={creerProduit} style={{ marginTop: 16 }}>
+              {envoiProduit ? "Enregistrement..." : "Créer le produit"}
+            </button>
+            <button className="btn-annuler" onClick={() => setFormProduitOuvert(false)} disabled={envoiProduit}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal mouvement de stock */}
+      {produitStock && (
+        <div className="modal-overlay" onClick={() => setProduitStock(null)}>
+          <div className="modal-box" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">
+              <i className="fa-solid fa-boxes-stacked" style={{ color: "#1D4ED8", marginRight: 8 }} />
+              Stock — {produitStock.nom_produit}
+            </div>
+            <div style={{ fontSize: 12, color: "#64748B", marginBottom: 14 }}>
+              Stock actuel : <strong style={{ color: "#1E293B" }}>{produitStock.stock_actuel}</strong> unité(s)
+            </div>
+
+            <label className="lock-label">Type de mouvement</label>
+            <select
+              className="modal-select"
+              value={typeMouvement}
+              onChange={(e) => setTypeMouvement(e.target.value as typeof typeMouvement)}
+            >
+              <option value="entree">Entrée (réapprovisionnement)</option>
+              <option value="sortie">Sortie (vente / usage)</option>
+              <option value="ajustement">Ajustement (nouvelle valeur exacte)</option>
+            </select>
+
+            <label className="lock-label">Quantité</label>
+            <input
+              className="lock-input"
+              type="number"
+              min={1}
+              value={quantiteMouvement}
+              onChange={(e) => setQuantiteMouvement(e.target.value)}
+              style={{ marginBottom: 10 }}
+            />
+
+            <label className="lock-label">Motif (optionnel)</label>
+            <input
+              className="lock-input"
+              value={motifMouvement}
+              onChange={(e) => setMotifMouvement(e.target.value)}
+              placeholder="Livraison fournisseur, casse, inventaire..."
+              style={{ marginBottom: 14 }}
+            />
+
+            <button className="btn-confirmer" onClick={confirmerMouvement}>
+              Valider le mouvement
+            </button>
+            <button className="btn-annuler" onClick={() => setProduitStock(null)}>
+              Fermer
+            </button>
+
+            {historique.length > 0 && (
+              <div style={{ marginTop: 18, borderTop: "1.5px solid #BFDBFE", paddingTop: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", marginBottom: 8 }}>
+                  Historique récent
+                </div>
+                <div style={{ maxHeight: 160, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                  {historique.map((m) => (
+                    <div
+                      key={m.id_mouvement}
+                      style={{ fontSize: 11, display: "flex", justifyContent: "space-between", color: "#1E293B" }}
+                    >
+                      <span>
+                        {m.type_mouvement === "entree" ? "⬆️ Entrée" : m.type_mouvement === "sortie" ? "⬇️ Sortie" : "🔧 Ajustement"}{" "}
+                        {m.quantite} — {m.motif || "—"}
+                      </span>
+                      <span style={{ color: "#94A3B8" }}>{new Date(m.date_mouvement).toLocaleDateString("fr-CM")}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -230,9 +546,27 @@ export default function Dashboard() {
         </div>
 
         <nav style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-          <a href="#" className="nav-item actif" onClick={(e) => e.preventDefault()}>
+          <a
+            href="#"
+            className={`nav-item${pageActive === "indicateurs" ? " actif" : ""}`}
+            onClick={(e) => {
+              e.preventDefault();
+              setPageActive("indicateurs");
+            }}
+          >
             <i className="fa-solid fa-gauge-high" />
             Indicateurs
+          </a>
+          <a
+            href="#"
+            className={`nav-item${pageActive === "produits" ? " actif" : ""}`}
+            onClick={(e) => {
+              e.preventDefault();
+              setPageActive("produits");
+            }}
+          >
+            <i className="fa-solid fa-boxes-stacked" />
+            Produits & Stock
           </a>
           <a href="#" className="nav-item" onClick={(e) => e.preventDefault()}>
             <i className="fa-solid fa-cash-register" />
@@ -259,96 +593,188 @@ export default function Dashboard() {
 
       {/* Main */}
       <main style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column" }}>
-        <div className="page-header">
-          <div>
-            <div className="page-title">Supervision en Temps Réel</div>
-            <div className="page-sub">Données Supabase — system_ia</div>
-          </div>
-          <button className="btn-refresh" onClick={() => chargerDonnees()}>
-            <i className={`fa-solid fa-rotate-right${refreshSpin ? " fa-spin" : ""}`} /> Actualiser
-          </button>
-        </div>
+        {pageActive === "indicateurs" ? (
+          <>
+            <div className="page-header">
+              <div>
+                <div className="page-title">Supervision en Temps Réel</div>
+                <div className="page-sub">Données Supabase — system_ia</div>
+              </div>
+              <button className="btn-refresh" onClick={() => chargerDonnees()}>
+                <i className={`fa-solid fa-rotate-right${refreshSpin ? " fa-spin" : ""}`} /> Actualiser
+              </button>
+            </div>
 
-        <div className="kpi-grid">
-          <div className="kpi-card">
-            <div className="kpi-label">Commandes globales</div>
-            <div className="kpi-val" style={{ color: "#1D4ED8" }}>
-              {kpi.commandes}
+            <div className="kpi-grid">
+              <div className="kpi-card">
+                <div className="kpi-label">Commandes globales</div>
+                <div className="kpi-val" style={{ color: "#1D4ED8" }}>
+                  {kpi.commandes}
+                </div>
+                <div className="kpi-hint">Total en base de données</div>
+              </div>
+              <div className="kpi-card">
+                <div className="kpi-label">Alertes Sécurité Réseau</div>
+                <div className="kpi-val" style={{ color: "#EF4444" }}>
+                  {kpi.alertes}
+                </div>
+                <div className="kpi-hint">IDS/IPS actif</div>
+              </div>
+              <div className="kpi-card">
+                <div className="kpi-label">Sessions Chatbot</div>
+                <div className="kpi-val" style={{ color: "#8B5CF6" }}>
+                  {kpi.nlp}
+                </div>
+                <div className="kpi-hint">Web + WhatsApp</div>
+              </div>
             </div>
-            <div className="kpi-hint">Total en base de données</div>
-          </div>
-          <div className="kpi-card">
-            <div className="kpi-label">Alertes Sécurité Réseau</div>
-            <div className="kpi-val" style={{ color: "#EF4444" }}>
-              {kpi.alertes}
-            </div>
-            <div className="kpi-hint">IDS/IPS actif</div>
-          </div>
-          <div className="kpi-card">
-            <div className="kpi-label">Sessions Chatbot</div>
-            <div className="kpi-val" style={{ color: "#8B5CF6" }}>
-              {kpi.nlp}
-            </div>
-            <div className="kpi-hint">Web + WhatsApp</div>
-          </div>
-        </div>
 
-        <div className="table-card" style={{ flex: 1, minHeight: 260 }}>
-          <div className="table-title">
-            <i className="fa-solid fa-list-check" style={{ color: "#1D4ED8" }} />
-            File d&apos;attente des commandes
-            <span className="badge-count">{commandes.length}</span>
-          </div>
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>#ID</th>
-                  <th>Statut Actuel</th>
-                  <th>Total Facturé</th>
-                  <th style={{ textAlign: "right" }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {commandes.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} style={{ textAlign: "center", padding: 40, color: "#94A3B8", fontStyle: "italic" }}>
-                      <i
-                        className="fa-solid fa-inbox"
-                        style={{ fontSize: 22, color: "#BFDBFE", display: "block", marginBottom: 8 }}
-                      />
-                      Aucune commande enregistrée en base de données.
-                    </td>
-                  </tr>
-                ) : (
-                  commandes.map((c, i) => {
-                    const id = c.id_commande ?? c.id ?? 0;
-                    const statut = c.statut_cmd ?? c.statut ?? "En attente";
-                    const total = c.paiement?.montant ?? c.total ?? c.montant ?? 0;
-                    const [cls, ico] = badgeClasse(statut);
-                    return (
-                      <tr key={i}>
-                        <td style={{ fontFamily: "monospace", fontWeight: 700, color: "#1D4ED8" }}>#{id}</td>
-                        <td>
-                          <span className={`badge ${cls}`}>
-                            {ico} {statut}
-                          </span>
-                        </td>
-                        <td style={{ fontWeight: 700 }}>{Number(total).toLocaleString("fr-CM")} FCFA</td>
-                        <td style={{ textAlign: "right" }}>
-                          <button className="btn-traiter" onClick={() => ouvrirModal(Number(id), statut)}>
-                            <i className="fa-solid fa-pen" style={{ marginRight: 4 }} />
-                            Traiter
-                          </button>
+            <div className="table-card" style={{ flex: 1, minHeight: 260 }}>
+              <div className="table-title">
+                <i className="fa-solid fa-list-check" style={{ color: "#1D4ED8" }} />
+                File d&apos;attente des commandes
+                <span className="badge-count">{commandes.length}</span>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto" }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#ID</th>
+                      <th>Statut Actuel</th>
+                      <th>Total Facturé</th>
+                      <th style={{ textAlign: "right" }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {commandes.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: "center", padding: 40, color: "#94A3B8", fontStyle: "italic" }}>
+                          <i
+                            className="fa-solid fa-inbox"
+                            style={{ fontSize: 22, color: "#BFDBFE", display: "block", marginBottom: 8 }}
+                          />
+                          Aucune commande enregistrée en base de données.
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                    ) : (
+                      commandes.map((c, i) => {
+                        const id = c.id_commande ?? c.id ?? 0;
+                        const statut = c.statut_cmd ?? c.statut ?? "En attente";
+                        const total = c.paiement?.montant ?? c.total ?? c.montant ?? 0;
+                        const [cls, ico] = badgeClasse(statut);
+                        return (
+                          <tr key={i}>
+                            <td style={{ fontFamily: "monospace", fontWeight: 700, color: "#1D4ED8" }}>#{id}</td>
+                            <td>
+                              <span className={`badge ${cls}`}>
+                                {ico} {statut}
+                              </span>
+                            </td>
+                            <td style={{ fontWeight: 700 }}>{Number(total).toLocaleString("fr-CM")} FCFA</td>
+                            <td style={{ textAlign: "right" }}>
+                              <button className="btn-traiter" onClick={() => ouvrirModal(Number(id), statut)}>
+                                <i className="fa-solid fa-pen" style={{ marginRight: 4 }} />
+                                Traiter
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="page-header">
+              <div>
+                <div className="page-title">Produits & Stock</div>
+                <div className="page-sub">Catalogue — stock entrant et restant</div>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="btn-refresh" onClick={() => chargerProduits()}>
+                  <i className={`fa-solid fa-rotate-right${chargementProduits ? " fa-spin" : ""}`} /> Actualiser
+                </button>
+                <button className="btn-ajouter" onClick={() => setFormProduitOuvert(true)}>
+                  <i className="fa-solid fa-plus" /> Nouveau produit
+                </button>
+              </div>
+            </div>
+
+            <div className="table-card" style={{ flex: 1, minHeight: 260 }}>
+              <div className="table-title">
+                <i className="fa-solid fa-boxes-stacked" style={{ color: "#1D4ED8" }} />
+                Produits enregistrés
+                <span className="badge-count">{produits.length}</span>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto" }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Photo</th>
+                      <th>Produit</th>
+                      <th>Catégorie</th>
+                      <th>Prix</th>
+                      <th>Stock restant</th>
+                      <th style={{ textAlign: "right" }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {produits.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={{ textAlign: "center", padding: 40, color: "#94A3B8", fontStyle: "italic" }}>
+                          <i
+                            className="fa-solid fa-box-open"
+                            style={{ fontSize: 22, color: "#BFDBFE", display: "block", marginBottom: 8 }}
+                          />
+                          Aucun produit enregistré.
+                        </td>
+                      </tr>
+                    ) : (
+                      produits.map((p) => {
+                        const stockBas = p.stock_actuel <= p.seuil_alerte;
+                        return (
+                          <tr key={p.id_produit}>
+                            <td>
+                              {p.photo_url ? (
+                                <img
+                                  src={p.photo_url}
+                                  alt={p.nom_produit}
+                                  style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover" }}
+                                />
+                              ) : (
+                                <div style={{ width: 40, height: 40, borderRadius: 8, background: "#EFF6FF" }} />
+                              )}
+                            </td>
+                            <td style={{ fontWeight: 700 }}>
+                              {p.nom_produit}
+                              {!p.actif && <span style={{ marginLeft: 6, fontSize: 10, color: "#EF4444" }}>(désactivé)</span>}
+                            </td>
+                            <td style={{ color: "#64748B" }}>{p.categorie || "—"}</td>
+                            <td style={{ fontWeight: 700 }}>{Number(p.prix_unitaire).toLocaleString("fr-CM")} FCFA</td>
+                            <td>
+                              <span className={`badge ${stockBas ? "badge-annule" : "badge-livre"}`}>
+                                {stockBas ? "⚠️" : "✅"} {p.stock_actuel}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: "right" }}>
+                              <button className="btn-traiter" onClick={() => ouvrirModalStock(p)}>
+                                <i className="fa-solid fa-boxes-packing" style={{ marginRight: 4 }} />
+                                Gérer le stock
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );
@@ -382,6 +808,7 @@ aside { width:228px; flex-shrink:0; background:#fff; border-right:1.5px solid #B
 .page-sub { font-size:11px; color:#64748B; margin-top:3px; }
 .btn-refresh { display:flex; align-items:center; gap:6px; background:#EFF6FF; border:1.5px solid #BFDBFE; color:#1D4ED8; border-radius:9px; padding:8px 14px; font-size:11px; font-weight:700; cursor:pointer; }
 .btn-refresh:hover { background:#DBEAFE; }
+.btn-ajouter { display:flex; align-items:center; gap:6px; background:linear-gradient(135deg,#1D4ED8,#3B82F6); border:none; color:#fff; border-radius:9px; padding:8px 14px; font-size:11px; font-weight:700; cursor:pointer; }
 .kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-bottom:20px; }
 .kpi-card { background:#fff; border:1.5px solid #BFDBFE; border-radius:14px; padding:18px 16px; }
 .kpi-card:hover { border-color:#3B82F6; box-shadow:0 4px 16px rgba(59,130,246,.1); }
@@ -395,7 +822,7 @@ table { width:100%; font-size:12px; border-collapse:collapse; }
 thead th { background:#F8FAFC; padding:10px 12px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#64748B; text-align:left; border-bottom:1.5px solid #BFDBFE; }
 tbody tr { border-bottom:1px solid #F1F5F9; }
 tbody tr:hover { background:#F8FAFC; }
-tbody td { padding:10px 12px; color:#1E293B; }
+tbody td { padding:10px 12px; color:#1E293B; vertical-align: middle; }
 .badge { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:999px; font-size:10px; font-weight:700; }
 .badge-attente { background:#FEF9C3; color:#854D0E; border:1px solid #FDE68A; }
 .badge-confirme { background:#D1FAE5; color:#065F46; border:1px solid #6EE7B7; }
@@ -409,7 +836,9 @@ tbody td { padding:10px 12px; color:#1E293B; }
 .modal-title { font-size:15px; font-weight:800; color:#1E293B; margin-bottom:18px; }
 .modal-select { width:100%; background:#F8FAFC; border:1.5px solid #BFDBFE; color:#1E293B; border-radius:10px; padding:10px 14px; font-size:12px; font-weight:600; outline:none; margin-bottom:10px; }
 .btn-confirmer { width:100%; background:linear-gradient(135deg,#1D4ED8,#3B82F6); color:#fff; border:none; border-radius:10px; padding:12px; font-size:12px; font-weight:700; cursor:pointer; }
+.btn-confirmer:disabled { opacity:0.6; cursor:not-allowed; }
 .btn-annuler { width:100%; background:transparent; border:1.5px solid #BFDBFE; color:#64748B; border-radius:10px; padding:10px; font-size:12px; font-weight:600; cursor:pointer; margin-top:8px; }
+.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
 #toast { position:fixed; bottom:24px; right:24px; background:#fff; border:1.5px solid #BFDBFE; border-left:4px solid #1D4ED8; color:#1E293B; padding:12px 18px; border-radius:10px; font-size:12px; font-weight:600; z-index:200; box-shadow:0 8px 24px rgba(29,78,216,.14); transform:translateY(80px); opacity:0; transition:all .32s; }
 #toast.show { transform:translateY(0); opacity:1; }
 `;
